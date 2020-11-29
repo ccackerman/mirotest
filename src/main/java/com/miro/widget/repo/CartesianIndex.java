@@ -48,15 +48,6 @@ public class CartesianIndex {
     	bottomY.clear();
     }
 
-//    private TreeMap<Long, Widget> filterWidgetsOld(TreeMap<Integer, ArrayList<Long>> tm, int from, int to) {
-//        TreeMap<Long, Widget> widgets = new TreeMap<Long, Widget>();
-//        SortedMap<Integer, ArrayList<Widget>> sm = tm.subMap(from,to+1);
-//        sm.forEach((k, v) -> {
-//            v.forEach((w) -> widgets.put(w.id, w));
-//        });
-//        return widgets;
-//    }
-
     private SortedSet<Long> filterWidgets(TreeMap<Integer, ArrayList<Long>> tm, int from, int to) {
         SortedSet<Long> refs = new TreeSet<>();
         SortedMap<Integer, ArrayList<Long>> sm = tm.subMap(from,to+1);
