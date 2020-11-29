@@ -18,12 +18,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.web.server.LocalServerPort;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
 
+import com.miro.widget.model.SearchBounds;
 import com.miro.widget.model.Widget;
 
 
@@ -64,10 +64,20 @@ public class WidgetRestControllerTests {
         assertEquals(expected, widgets[0]);
         assertEquals(expected2, widgets[1]);
         
+        //filter and get only the matching widget
+        SearchBounds bounds = new SearchBounds(2, 2, 22, 32);
+        RequestEntity<SearchBounds> searchReq = RequestEntity
+       	     .put(new URI(base.toString() + "search"))
+       	     .accept(MediaType.APPLICATION_JSON)
+       	     .body(bounds);
+        listResponse = template.exchange(base.toString() + "search", HttpMethod.POST, searchReq, Widget[].class);
+    	widgets = listResponse.getBody();    			
+    	assertNotNull(widgets);
+    	assertEquals(1, widgets.length);
+        assertEquals(expected2, widgets[0]);
+        
         //update a widget and get it back
         Widget w = new Widget(1l, 3, 4, 0, 11, 21);
-    	HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
         RequestEntity<Widget> request = RequestEntity
         	     .put(new URI(base.toString() + "1"))
         	     .accept(MediaType.APPLICATION_JSON)

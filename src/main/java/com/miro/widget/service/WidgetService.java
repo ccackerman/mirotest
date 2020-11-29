@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
 
+import com.miro.widget.model.SearchBounds;
 import com.miro.widget.model.Widget;
 import com.miro.widget.repo.WidgetRepository;
 
@@ -33,6 +34,13 @@ public class WidgetService {
 			
 	public synchronized List<Widget> getAllWidgets() {
 		Iterable<Widget> widgets = widgetRepo.findAll();
+		ArrayList<Widget> result = new ArrayList<Widget>();
+		widgets.forEach(result::add);
+		return result;
+	}
+	
+	public synchronized List<Widget> search(SearchBounds bounds) {
+		Iterable<Widget> widgets = widgetRepo.search(bounds);
 		ArrayList<Widget> result = new ArrayList<Widget>();
 		widgets.forEach(result::add);
 		return result;

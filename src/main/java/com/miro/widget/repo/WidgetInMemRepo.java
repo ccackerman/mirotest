@@ -5,35 +5,38 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.TreeMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
 
+import com.miro.widget.model.IBoundingBox;
 import com.miro.widget.model.Widget;
 
 /**
  * WidgetRepository implementation that stores Widgets in memory.
+ * This repository is not thread safe. To ensure consistency, external synchronization should be applied.
  */
 @Repository
 public class WidgetInMemRepo implements WidgetRepository{
 
 	Logger log = LoggerFactory.getLogger(WidgetInMemRepo.class);
-	private final AtomicLong idGen = new AtomicLong(1);
 	
-    //maps z index value to Widget
-    final TreeMap<Integer, Widget> widgetsByZPos = new TreeMap<>();
-    final TreeMap<Long, Integer> zPosById = new TreeMap<>();
+	private final WidgetIdGenerator idGen = new WidgetIdGenerator();
+	private final CartesianIndex xyIndex = new CartesianIndex();
+	
+    //primary widget order is by z index value
+    private final TreeMap<Integer, Widget> widgetsByZPos = new TreeMap<>();
+    private final TreeMap<Long, Integer> zPosById = new TreeMap<>();
 
     @Override
     public Widget save(Widget widget) {
     	if (null == widget)
     		throw new IllegalArgumentException("WidgetInMemRepo cannot save null Widget");
     	if (null == widget.getId()) {	//brand new widget
-			widget.setId(genId());
+			widget.setId(idGen.genId());
 			return addWidget(widget);
-		} else if (!isValidId(widget.getId())) {	//bad id
+		} else if (!idGen.isValidId(widget.getId())) {	//bad id
 			throw new IllegalArgumentException("Invalid id in widget " + widget.toString());
 		} else {	//add or update
 			Optional<Widget> old = findById(widget.getId());
@@ -57,6 +60,23 @@ public class WidgetInMemRepo implements WidgetRepository{
     }
     
     @Override
+    public Iterable<Widget> search(IBoundingBox bounds) {
+    	Collection<Long> ids = xyIndex.filter(bounds);
+    	if ((null == ids) || ids.isEmpty())
+    		return Collections.emptyList();
+    	TreeMap<Integer, Widget> results = new TreeMap<>();
+    	ids.forEach( id -> {
+    		Integer zPos = zPosById.get(id);
+    		if (null != zPos) {
+    			Widget w = widgetsByZPos.get(zPos);
+    			if (null != w)
+    				results.put(zPos, w);
+    		}   			
+    	});
+		return results.values();
+	}
+    
+    @Override
 	public long count() {
 		return widgetsByZPos.size();
 	}
@@ -65,7 +85,9 @@ public class WidgetInMemRepo implements WidgetRepository{
     public void deleteById(Long id) {
     	Integer zPos = zPosById.remove(id);
     	if (null != zPos) {
-    		widgetsByZPos.remove(zPos);
+    		Widget w = widgetsByZPos.remove(zPos);
+    		if (null != w)
+    			xyIndex.delete(w, w.getId());
     	}
 	}
     
@@ -73,99 +95,79 @@ public class WidgetInMemRepo implements WidgetRepository{
 	public void deleteAll() {
 		widgetsByZPos.clear();
 		zPosById.clear();
+		xyIndex.clear();
 	}
-
-    /**
-     * @return a collection of Widgets in ascending order of z index value
-     */
-    Collection<Widget> list() {
-        return Collections.unmodifiableCollection(widgetsByZPos.values());
-    }
-
-    /**
-     * List Widgets in asc order of z index value, between form (inclusive) and to (exclusive)
-     * @return a collection of Widgets in ascending order of z index value
-     */
-    Collection<Widget> list(int from, int to) {
-        return Collections.unmodifiableCollection(widgetsByZPos.subMap(from, to).values());
-    }
     
 	/**
 	 * Adds the given widget to all internal maps, assigning it a zIndex if it has none and setting its updateTime.
 	 * @return the given widget, with a non-null zIndex
 	 */
-	Widget addWidget(Widget widget) {
+	private Widget addWidget(Widget widget) {
 		widget.setUpdateTime(Instant.now());
 		insert(widget);		
 		return widget;
 	}
 	
-	Widget updateWidget(Widget existing, Widget newVersion) {
-		newVersion.setUpdateTime(existing.hasPropertyDiffs(newVersion) ? Instant.now() : existing.getUpdateTime());	
+	/**
+	 * Updates an existing widget according to a given newer version of itself.
+	 * @return updated version of widget
+	 */
+	private Widget updateWidget(Widget existing, Widget newVersion) {
+		boolean propsUpdated = existing.hasPropertyDiffs(newVersion);
+		newVersion.setUpdateTime(propsUpdated ? Instant.now() : existing.getUpdateTime());	
 		deleteById(existing.getId());
 		insert(newVersion);	
 		return newVersion;
 	}
 		
-	void removeAtZPos(int zPos) {
+	private void removeAtZPos(int zPos) {
 		Widget w = widgetsByZPos.remove(zPos);
-		if (null != w)
+		if (null != w) {
 			zPosById.remove(w.getId());
+			xyIndex.delete(w, w.getId());
+		}
 	}
 	
     /**
      * Places the Widget in the foreground or background depending on its z index value.
      */
-	void insert(Widget widget) {
+	private void insert(Widget widget) {
 		if (!widgetsByZPos.isEmpty() && (Integer.MAX_VALUE == widgetsByZPos.lastKey()))
 			shiftDownWidgets(Integer.MAX_VALUE);
+		int zPos;
     	if (null == widget.getzIndex()) {
-    		insertForeground(widget);
+    		zPos = (widgetsByZPos.isEmpty()) ? 0 : widgetsByZPos.lastKey()+1;
+    		doInsertAt(zPos, widget);
     	} else {
-    		insertAt(widget.getzIndex(), widget);
+    		zPos = widget.getzIndex();
+    		if (widgetsByZPos.containsKey(zPos))
+                shiftUpWidgets(zPos);
+    		doInsertAt(widget.getzIndex(), widget);
     	}
     }
     
     /**
-     * Places the Widget in the foreground, by generating a new maximum zIndex value for it.
+     * Places the Widget at the given z index value, without shifting.
      */
-    void insertForeground(Widget widget) {
-        int zPos = (widgetsByZPos.isEmpty()) ? 0 : widgetsByZPos.lastKey()+1;
+    private void doInsertAt(int zPos, Widget widget){
         widgetsByZPos.put(zPos, widget);
         zPosById.put(widget.getId(), zPos);
         widget.setzIndex(zPos);
-    }
-
-    /**
-     * Places the Widget at the given z index value.
-     */
-    void insertAt(int zPos, Widget widget){
-        if (widgetsByZPos.containsKey(zPos))
-            shiftUpWidgets(zPos);
-        widgetsByZPos.put(zPos, widget);
-        zPosById.put(widget.getId(), zPos);
-        widget.setzIndex(zPos);
+        xyIndex.add(widget, widget.getId());
     }
     
     /**
      * Shifts the given widget up one position in the z index and returns the widget it displaced.
      * @return the widget displaced by shifting into its position, or null if shifting into an empty position
      */
-    Widget shiftUpWidget(Widget widget) {
-    	Integer nextPos = widget.getzIndex()+1;
-    	Widget shifted = widget.cloneAndZShift(nextPos);
-    	Widget next = widgetsByZPos.replace(nextPos, shifted);
-    	if (null == next)	//nextPos is empty, place the item
-    		widgetsByZPos.put(nextPos, shifted);
-    	zPosById.put(widget.getId(), nextPos);
-    	return next;
+    private Widget shiftUpWidget(Widget widget) {
+    	return shiftWidget(widget, widget.getzIndex()+1);
     }
     
     /**
-     * 
-     * @param from
+     * Shift all widgets upwards from a given position, until a gap is reached.
      */
-    void shiftUpWidgets(int from) {
+    private void shiftUpWidgets(int from) {
     	Widget w = widgetsByZPos.get(from);
     	removeAtZPos(from);
     	while (w != null) {
@@ -177,19 +179,16 @@ public class WidgetInMemRepo implements WidgetRepository{
      * Shifts the given widget down one position in the z index and returns the widget it displaced.
      * @return the widget displaced by shifting into its position, or null if shifting into an empty position
      */
-    Widget shiftDownWidget(Widget widget) {
+    private Widget shiftDownWidget(Widget widget) {
     	if (Integer.MIN_VALUE == widget.getzIndex())
     		throw new IllegalStateException("WidgetInMemRepo is full");
-    	Integer prevPos = widget.getzIndex()-1;
-    	Widget shifted = widget.cloneAndZShift(prevPos);
-    	Widget prev = widgetsByZPos.replace(prevPos, shifted);
-    	if (null == prev)	//prevPos is empty, place the item
-    		widgetsByZPos.put(prevPos, shifted);
-    	zPosById.put(widget.getId(), prevPos);
-    	return prev;
+    	return shiftWidget(widget, widget.getzIndex()-1);
     }
     
-    void shiftDownWidgets(int from) {
+    /**
+     * Shift all widgets downwards from a given position, until a gap is reached.
+     */
+    private void shiftDownWidgets(int from) {
     	Widget w = widgetsByZPos.get(from);
     	removeAtZPos(from);
     	while (w != null) {
@@ -198,18 +197,15 @@ public class WidgetInMemRepo implements WidgetRepository{
     }
     
     /**
-     * Generates a unique id for a new Widget
+     * Shifts a widget to a given z index value, displacing any current occupant of that position.
+     * @return the displaced widget, if any
      */
-	private long genId() {
-		return idGen.getAndIncrement();
-	}
-	
-	/**
-	 * Tests if a given value would be a valid Widget id.
-	 */
-	private boolean isValidId(Long id) {
-		if ((null == id) || (id < 1l))
-			return false;
-		return true;					
-	}
+    private Widget shiftWidget(Widget widget, Integer toPos) {
+    	Widget shifted = widget.cloneAndZShift(toPos);
+    	Widget displaced = widgetsByZPos.replace(toPos, shifted);
+    	if (null == displaced)	//toPos is empty, place the item
+    		widgetsByZPos.put(toPos, shifted);
+    	zPosById.put(widget.getId(), toPos);
+    	return displaced;
+    }
 }

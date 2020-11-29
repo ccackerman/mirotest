@@ -6,7 +6,6 @@ package com.miro.widget.controller;
 import java.util.List;
 
 import javax.validation.Valid;
-import javax.validation.constraints.Min;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.miro.widget.model.SearchBounds;
 import com.miro.widget.model.Widget;
 import com.miro.widget.service.WidgetService;
 
@@ -65,5 +65,10 @@ public class WidgetRestController {
 	@PutMapping("/widgets/{id}")
 	public Widget updateWidget(@Valid @RequestBody Widget widget) {
 		return widgetService.updateWidget(widget);
+	}
+	
+	@PostMapping("/widgets/search")
+	public List<Widget> searchWidgets(@Valid @RequestBody SearchBounds bounds) {
+		return widgetService.search(bounds);
 	}
 }

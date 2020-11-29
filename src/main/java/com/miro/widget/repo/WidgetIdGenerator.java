@@ -16,7 +16,7 @@ public class WidgetIdGenerator {
 	/**
 	 * Tests if a given value would be a valid Widget id.
 	 */
-	static boolean isValidId(Long id) {
+	boolean isValidId(Long id) {
 		if ((null == id) || (id < 1l))
 			return false;
 		return true;					

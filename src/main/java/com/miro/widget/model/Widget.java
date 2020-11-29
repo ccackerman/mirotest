@@ -13,17 +13,17 @@ import javax.validation.constraints.Positive;
  * Represents a Miro Widget
  *
  */
-public class Widget {
+public class Widget implements IBoundingBox {
 	
 	private Long id;				//generated
 	
 	private Integer zIndex;			//z-index, may be < 0; generated or supplied
 	
 	@NotNull
-	private Integer x;				//cartesian coordinate, may be < 0
+	private Integer x;				//lowest cartesian x coordinate, may be < 0
 	
 	@NotNull
-	private Integer y;				//cartesian coordinate, may be < 0
+	private Integer y;				//lowest cartesian y coordinate, may be < 0
 	
 	@NotNull
 	@Positive(message = "Width should not be smaller than 1")
@@ -112,6 +112,27 @@ public class Widget {
 	
 	public void setId(Long id) {
 		this.id = id;
+	}
+
+	
+	@Override
+	public int getLowerX() {
+		return x;
+	}
+
+	@Override
+	public int getLowerY() {
+		return y;
+	}
+
+	@Override
+	public int getUpperX() {
+		return x+width;
+	}
+
+	@Override
+	public int getUpperY() {
+		return y+height;
 	}
 
 	@Override
